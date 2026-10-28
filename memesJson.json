@@ -1,0 +1,38 @@
+[
+  {
+    "id": "demo-1",
+    "videoId": "PugU5t-zfws",
+    "series": "בואו לאכול איתי",
+    "season": "עונה 10",
+    "episode": "מדבר — ספיישל",
+    "timestampSec": 42,
+    "timestampFormatted": "00:42",
+    "text": "דבר ראשון במדבר זה לעשות אש!",
+    "sourceType": "DEMO",
+    "youtubeUrl": "https://www.youtube.com/shorts/PugU5t-zfws"
+  },
+  {
+    "id": "demo-2",
+    "videoId": "YvxVA7sxdks",
+    "series": "קופה ראשית",
+    "season": "עונה 5",
+    "episode": "פרק 9 — לדפוק חתונה",
+    "timestampSec": 315,
+    "timestampFormatted": "05:15",
+    "text": "כמה שמים לחתונה של חברה מהקופה הראשית?!",
+    "sourceType": "DEMO",
+    "youtubeUrl": "https://www.youtube.com/watch?v=YvxVA7sxdks&t=315s"
+  },
+  {
+    "id": "demo-3",
+    "videoId": "sV_prJK6TV4",
+    "series": "קופה ראשית",
+    "season": "עונה 5",
+    "episode": "פרק 13 — הו הא מי זה בא?",
+    "timestampSec": 612,
+    "timestampFormatted": "10:12",
+    "text": "לעובדים נמאס מנציגת הוועד, אנחנו דורשים בחירות בקופה!",
+    "sourceType": "DEMO",
+    "youtubeUrl": "https://www.youtube.com/watch?v=sV_prJK6TV4&t=612s"
+  }
+]

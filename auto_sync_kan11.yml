@@ -1,0 +1,36 @@
+name: Auto-Sync @KAN11 YouTube Transcripts
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # רץ אוטומטית כל 6 שעות ובודק אם עלה פרק חדש ב-@KAN11
+  workflow_dispatch:      # מאפשר גם הפעלה ידנית בלחיצת כפתור ב-GitHub
+
+ permissions:
+  contents: write
+
+jobs:
+  sync-kan11-subtitles:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install yt-dlp & ffmpeg
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          pip install -U yt-dlp
+
+      - name: Scan @KAN11 Main Channel for New Episodes
+        run: python3 sync_kan11_youtube.py
+
+      - name: Commit updated memesJson.json
+        run: |
+          git config user.name "kan11-memes-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add memesJson.json
+          git diff --staged --quiet || (git commit -m "Auto-update @KAN11 transcripts" && git push)
