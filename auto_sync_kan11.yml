@@ -2,8 +2,13 @@ name: Auto-Sync @KAN11 YouTube Transcripts
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 */2 * * *'
   workflow_dispatch:
+    inputs:
+      scan_mode:
+        description: 'Scan Mode (full = scan entire channel & all playlists with no limit)'
+        required: false
+        default: 'full'
 
 permissions:
   contents: write
@@ -11,6 +16,7 @@ permissions:
 jobs:
   sync-kan11-subtitles:
     runs-on: ubuntu-latest
+    timeout-minutes: 55
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -20,16 +26,18 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install transcript tools
+      - name: Install transcript & subtitle tools
         run: |
           pip install -U youtube-transcript-api scrapetube yt-dlp
 
-      - name: Scan @KAN11 Main Channel for New Episodes
+      - name: Deep-Scan Entire @KAN11 Channel (All Playlists, Videos & Shorts)
+        env:
+          MAX_RUNTIME_MINUTES: "45"
         run: python3 sync_kan11_youtube.py
 
-      - name: Commit updated memesJson.json
+      - name: Commit updated memesJson.json & checkpoint state
         run: |
           git config user.name "kan11-memes-bot"
           git config user.email "bot@users.noreply.github.com"
-          git add memesJson.json
-          git diff --staged --quiet || (git commit -m "Auto-update @KAN11 transcripts" && git push)
+          git add memesJson.json scanned_videos.json || true
+          git diff --staged --quiet || (git commit -m "Auto-update @KAN11 full-channel transcripts" && git push)
