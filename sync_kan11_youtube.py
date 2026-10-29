@@ -314,6 +314,7 @@ def main():
                         "timestampSec": sec,
                         "timestampFormatted": format_mm_ss(sec),
                         "text": text,
+                        "image": f"https://i.ytimg.com/vi/{vid_id}/hq{(sec % 3) + 1}.jpg",
                         "sourceType": "DEMO",
                         "youtubeUrl": f"https://www.youtube.com/watch?v={vid_id}&t={sec}s"
                     })
