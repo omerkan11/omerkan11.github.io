@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-סורק מלא ללא הגבלה (Full-Channel Deep Crawler) לערוץ הראשי של כאן 11 ביוטיוב
-Channel ID: UCDJ6HHS5wkNaSREumdJRYhg (https://www.youtube.com/channel/UCDJ6HHS5wkNaSREumdJRYhg)
+סורק אוטומטי דו-שכבתי (2-Tier Continuous Sync & Full Archive Crawler)
+עבור שני הערוצים הרשמיים של כאן ביוטיוב:
+1. כאן 11 (@KAN11 - Channel ID: UCDJ6HHS5wkNaSREumdJRYhg)
+2. כאן דיגיטל (@KanDigital - כל המערכונים האקראיים, דוקותיים, חיות כיס, הטרמפיסטים, שם טוב האבי, תמיר בר ועוד)
 
-מה הסקריפט עושה?
-1. סורק את כל הפלייליסטים בערוץ (limit=None) ואת כל הפרקים בתוך כל פלייליסט (limit=None).
-2. סורק את כל הסרטונים בערוץ (Videos + Shorts + Streams) ללא מגבלת כמות (limit=None).
-3. מושך כתוביות בעברית ב-2 מנועים במקביל:
-   - youtube-transcript-api (מהיר מאוד)
-   - גיבוי אוטומטי עם yt-dlp לחילוץ כתוביות אוטומטיות/ידניות בעברית במקרה של חסימה.
-4. שומר נקודת עצירה (Checkpoint) כל 25 סרטונים לתוך memesJson.json ו-scanned_videos.json,
-   כך שגם בסריקה של אלפי סרטונים שום דבר לא הולך לאיבוד וכל הרצה ממשיכה בדיוק מהנקודה שבה הקודמת עצרה!
+איך הסקריפט שומר על עדכון שוטף כל כמה שעות + השלמת כל הארכיון?
+- שלב 1 (עדיפות עליונה - כל ריצה): בודק קודם כל את 60 הסרטונים וה-Shorts הכי חדשים שעלו היום ב"כאן דיגיטל" וב"כאן 11" (כולל פיד RSS הרשמי של יוטיוב), כך שכל מערכון או פרק חדש שעולה נכנס לאתר תוך שעות ספורות!
+- שלב 2 (השלמת כל הארכיון): ממשיך לסרוק לעומק את כל אלפי הסרטונים הבודדים (Videos + Shorts) ואת כל הפלייליסטים בשני הערוצים מאז הקמתם, ושומר התקדמות אוטומטית כל 25 סרטונים לתוך memesJson.json ו-scanned_videos.json.
 """
 import json
 import os
@@ -19,15 +16,17 @@ import re
 import subprocess
 import tempfile
 import time
+import urllib.request
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-CHANNEL_ID = "UCDJ6HHS5wkNaSREumdJRYhg"
-CHANNEL_URL = f"https://www.youtube.com/channel/{CHANNEL_ID}"
+KAN11_CHANNEL_ID = "UCDJ6HHS5wkNaSREumdJRYhg"
+KANDIGITAL_URL = "https://www.youtube.com/@KanDigital"
+
 OUTPUT_JSON = Path("memesJson.json")
 SCANNED_STATE_JSON = Path("scanned_videos.json")
 
-# Time budget in minutes (0 = no time limit when running on local computer; 45 min on GitHub Actions)
 MAX_RUNTIME_MINUTES = float(os.environ.get("MAX_RUNTIME_MINUTES", "0"))
 CHECKPOINT_EVERY = 25
 WORKERS = int(os.environ.get("SCAN_WORKERS", "4"))
@@ -73,7 +72,13 @@ KNOWN_SERIES = [
     "תמיר בר",
     "אואזיס במדבר",
     "הטרמפיסטים",
-    "לוחמים"
+    "לוחמים",
+    "חיות כיס",
+    "כאן סקרנים",
+    "כאן מסבירים",
+    "כאן מכירים",
+    "כאן מקשיבים",
+    "משתפצות"
 ]
 
 
@@ -82,15 +87,19 @@ def format_mm_ss(sec: float) -> str:
     return f"{s // 60:02d}:{s % 60:02d}"
 
 
-def infer_series_and_episode(title: str, playlist_title: str = ""):
+def infer_series_and_episode(title: str, playlist_title: str = "", default_channel_label: str = "כאן 11"):
     combined_text = f"{title} {playlist_title}"
     for ks in KNOWN_SERIES:
         if ks in combined_text:
             m_season = re.search(r"(עונה\s*\d+)", combined_text)
-            season = m_season.group(1) if m_season else (playlist_title or "כאן 11")
+            season = m_season.group(1) if m_season else (playlist_title or default_channel_label)
             parts = [p.strip() for p in title.split("|")]
             episode = parts[-1] if len(parts) >= 2 else title
-            return ("זהו זה!" if ks == "זהו זה" else ks), season, episode
+            if ks == "זהו זה":
+                return "זהו זה!", season, episode
+            if ks == "אתה חייב לקרוא את זה":
+                return "אתה חייב לקרוא את זה!", season, episode
+            return ks, season, episode
 
     parts = [p.strip() for p in title.split("|")]
     if len(parts) >= 2:
@@ -102,13 +111,15 @@ def infer_series_and_episode(title: str, playlist_title: str = ""):
             series = left.replace(season, "").strip(" -–|🛒🔥💍💰🔒")
         else:
             series = left.strip(" -–|🛒🔥💍💰🔒")
-            season = playlist_title or "סדרות ודיגיטל"
-        return series or (playlist_title or "כאן 11"), season, right
+            season = playlist_title or default_channel_label
+        return series or default_channel_label, season, right
 
+    if default_channel_label == "כאן דיגיטל":
+        return "מערכוני כאן דיגיטל", (playlist_title or "כאן דיגיטל"), title
     if playlist_title:
         clean_pl = playlist_title.split("|")[0].strip(" -–|🛒🔥💍💰🔒")
-        return (clean_pl or playlist_title), "כאן 11", title
-    return "כאן 11 דיגיטל", "סדרות", title
+        return (clean_pl or playlist_title), default_channel_label, title
+    return default_channel_label, "סדרות ודיגיטל", title
 
 
 def extract_title(v_obj: dict) -> str:
@@ -121,75 +132,89 @@ def extract_title(v_obj: dict) -> str:
     return str(t or "")
 
 
-def discover_all_channel_videos():
-    """Discovers ALL videos across ALL playlists, uploads, shorts, and streams on UCDJ6HHS5wkNaSREumdJRYhg (no limits)."""
+def fetch_rss_latest(channel_id: str, label: str):
+    """Fetches the 15 newest uploads via YouTube's official XML RSS feed (instant, never rate-limited)."""
+    items = []
+    try:
+        url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            xml_bytes = resp.read()
+        root = ET.fromstring(xml_bytes)
+        ns = {"atom": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015"}
+        for entry in root.findall("atom:entry", ns):
+            vid_el = entry.find("yt:videoId", ns)
+            title_el = entry.find("atom:title", ns)
+            if vid_el is not None and title_el is not None and vid_el.text and title_el.text:
+                items.append((vid_el.text.strip(), title_el.text.strip(), "", label))
+    except Exception as e:
+        print(f"RSS note ({label}): {e}")
+    return items
+
+
+def discover_two_tier_videos():
+    """
+    Tier 1: Newest uploads & Shorts on BOTH @KanDigital and @KAN11 (so daily new content is indexed first!).
+    Tier 2: Deep archive scan of all standalone videos, Shorts, and Playlists on BOTH @KanDigital and @KAN11.
+    """
     collected = []
     seen_ids = set()
+
+    def add_item(vid_id, title, pl_title, ch_label):
+        if vid_id and title and vid_id not in seen_ids:
+            seen_ids.add(vid_id)
+            collected.append((vid_id, title, pl_title, ch_label))
+
+    # Tier 1A: Instant RSS feed check
+    for vid_id, title, pl_title, ch_label in fetch_rss_latest(KAN11_CHANNEL_ID, "כאן 11"):
+        add_item(vid_id, title, pl_title, ch_label)
+
     try:
         import scrapetube
 
-        print(f"[1/3] Discovering ALL series playlists on channel {CHANNEL_ID}...")
-        pl_count = 0
-        for pl in scrapetube.get_playlists(channel_id=CHANNEL_ID, limit=None):
-            pl_id = pl.get("playlistId")
-            pl_title = extract_title(pl)
-            if not pl_id or any(w in pl_title for w in NEWS_FILTER_WORDS):
-                continue
-            pl_count += 1
-            try:
-                for pv in scrapetube.get_playlist(playlist_id=pl_id, limit=None):
-                    vid_id = pv.get("videoId")
-                    title = extract_title(pv)
-                    if vid_id and title and vid_id not in seen_ids:
-                        seen_ids.add(vid_id)
-                        collected.append((vid_id, title, pl_title))
-            except Exception as pe:
-                print(f"  Playlist note ({pl_id}): {pe}")
-        print(f"  -> Scanned {pl_count} playlists, discovered {len(collected)} playlist videos so far.")
+        print("[Tier 1] Checking newest uploads & Shorts on @KanDigital and @KAN11...")
+        for v in scrapetube.get_channel(channel_url=KANDIGITAL_URL, limit=60, content_type="videos"):
+            add_item(v.get("videoId"), extract_title(v), "", "כאן דיגיטל")
+        for sv in scrapetube.get_channel(channel_url=KANDIGITAL_URL, limit=40, content_type="shorts"):
+            add_item(sv.get("videoId"), extract_title(sv), "כאן דיגיטל Shorts", "כאן דיגיטל")
+        for v in scrapetube.get_channel(channel_id=KAN11_CHANNEL_ID, limit=60, content_type="videos"):
+            add_item(v.get("videoId"), extract_title(v), "", "כאן 11")
+        for sv in scrapetube.get_channel(channel_id=KAN11_CHANNEL_ID, limit=40, content_type="shorts"):
+            add_item(sv.get("videoId"), extract_title(sv), "כאן 11 Shorts", "כאן 11")
+        print(f"  -> Tier 1 newest uploads ready: {len(collected)} videos.")
 
-        print(f"[2/3] Discovering ALL main video uploads on channel {CHANNEL_ID} (limit=None)...")
-        for v in scrapetube.get_channel(channel_id=CHANNEL_ID, limit=None, content_type="videos"):
-            vid_id = v.get("videoId")
-            title = extract_title(v)
-            if vid_id and title and vid_id not in seen_ids:
-                seen_ids.add(vid_id)
-                collected.append((vid_id, title, ""))
-        print(f"  -> Total unique videos after main uploads: {len(collected)}")
-
-        print(f"[3/3] Discovering ALL Shorts on channel {CHANNEL_ID} (limit=None)...")
-        for sv in scrapetube.get_channel(channel_id=CHANNEL_ID, limit=None, content_type="shorts"):
-            vid_id = sv.get("videoId")
-            title = extract_title(sv)
-            if vid_id and title and vid_id not in seen_ids:
-                seen_ids.add(vid_id)
-                collected.append((vid_id, title, "כאן 11 Shorts"))
-        print(f"  -> Total unique videos discovered on @KAN11: {len(collected)}")
-
-        print("[4/4] Discovering ALL playlists & videos on @KanDigital (כאן דיגיטל - שם טוב האבי, תמיר בר וכו')...")
-        for pl in scrapetube.get_playlists(channel_url="https://www.youtube.com/@KanDigital", limit=None):
+        print("[Tier 2A] Deep-scanning ALL standalone videos & playlists on @KanDigital (כאן דיגיטל)...")
+        for v in scrapetube.get_channel(channel_url=KANDIGITAL_URL, limit=None, content_type="videos"):
+            add_item(v.get("videoId"), extract_title(v), "", "כאן דיגיטל")
+        for pl in scrapetube.get_playlists(channel_url=KANDIGITAL_URL, limit=None):
             pl_id = pl.get("playlistId")
             pl_title = extract_title(pl)
             if not pl_id or any(w in pl_title for w in NEWS_FILTER_WORDS):
                 continue
             try:
                 for pv in scrapetube.get_playlist(playlist_id=pl_id, limit=None):
-                    vid_id = pv.get("videoId")
-                    title = extract_title(pv)
-                    if vid_id and title and vid_id not in seen_ids:
-                        seen_ids.add(vid_id)
-                        collected.append((vid_id, title, pl_title))
+                    add_item(pv.get("videoId"), extract_title(pv), pl_title, "כאן דיגיטל")
             except Exception:
                 pass
-        for v in scrapetube.get_channel(channel_url="https://www.youtube.com/@KanDigital", limit=None, content_type="videos"):
-            vid_id = v.get("videoId")
-            title = extract_title(v)
-            if vid_id and title and vid_id not in seen_ids:
-                seen_ids.add(vid_id)
-                collected.append((vid_id, title, "כאן דיגיטל"))
-        print(f"  -> Total unique videos discovered across @KAN11 + @KanDigital: {len(collected)}")
 
+        print("[Tier 2B] Deep-scanning ALL playlists & videos on @KAN11 (כאן 11)...")
+        for pl in scrapetube.get_playlists(channel_id=KAN11_CHANNEL_ID, limit=None):
+            pl_id = pl.get("playlistId")
+            pl_title = extract_title(pl)
+            if not pl_id or any(w in pl_title for w in NEWS_FILTER_WORDS):
+                continue
+            try:
+                for pv in scrapetube.get_playlist(playlist_id=pl_id, limit=None):
+                    add_item(pv.get("videoId"), extract_title(pv), pl_title, "כאן 11")
+            except Exception:
+                pass
+        for v in scrapetube.get_channel(channel_id=KAN11_CHANNEL_ID, limit=None, content_type="videos"):
+            add_item(v.get("videoId"), extract_title(v), "", "כאן 11")
+
+        print(f"  -> Total unique videos discovered across @KanDigital + @KAN11: {len(collected)}")
     except Exception as e:
         print("Discovery warning:", e)
+
     return collected
 
 
@@ -219,7 +244,6 @@ def parse_vtt_or_srt(content: str):
 
 
 def fetch_transcript_cues(vid_id: str):
-    # Engine 1: youtube-transcript-api (supports both v0.x and v1.x APIs)
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
         entries = None
@@ -255,7 +279,6 @@ def fetch_transcript_cues(vid_id: str):
     except Exception:
         pass
 
-    # Engine 2: yt-dlp fallback for auto-subtitles / Hebrew closed captions
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             cmd = [
@@ -303,36 +326,36 @@ def main():
         except Exception:
             pass
 
-    all_videos = discover_all_channel_videos()
+    all_videos = discover_two_tier_videos()
     pending = [
-        (vid_id, title, pl_title)
-        for vid_id, title, pl_title in all_videos
+        (vid_id, title, pl_title, ch_label)
+        for vid_id, title, pl_title, ch_label in all_videos
         if vid_id not in scanned_ids and not any(w in title for w in NEWS_FILTER_WORDS)
     ]
-    print(f"Ready to scan {len(pending)} unindexed videos (out of {len(all_videos)} total on channel).")
+    print(f"Ready to scan {len(pending)} unindexed videos (out of {len(all_videos)} discovered across @KanDigital & @KAN11).")
 
     new_items = []
     processed_since_save = 0
 
     for i in range(0, len(pending), WORKERS):
         if MAX_RUNTIME_MINUTES > 0 and (time.time() - start_time) / 60.0 >= MAX_RUNTIME_MINUTES:
-            print(f"Reached time budget ({MAX_RUNTIME_MINUTES} min). Saving progress for next run...")
+            print(f"Reached time budget ({MAX_RUNTIME_MINUTES} min). Saving progress for next scheduled run...")
             break
 
         batch = pending[i : i + WORKERS]
         with ThreadPoolExecutor(max_workers=WORKERS) as pool:
             future_map = {
-                pool.submit(fetch_transcript_cues, vid_id): (vid_id, title, pl_title)
-                for vid_id, title, pl_title in batch
+                pool.submit(fetch_transcript_cues, vid_id): (vid_id, title, pl_title, ch_label)
+                for vid_id, title, pl_title, ch_label in batch
             }
             for fut in as_completed(future_map):
-                vid_id, title, pl_title = future_map[fut]
+                vid_id, title, pl_title, ch_label = future_map[fut]
                 scanned_ids.add(vid_id)
                 processed_since_save += 1
                 cues = fut.result() or []
                 if not cues:
                     continue
-                series, season, episode = infer_series_and_episode(title, pl_title)
+                series, season, episode = infer_series_and_episode(title, pl_title, ch_label)
                 for idx, (sec, text) in enumerate(cues):
                     new_items.append({
                         "id": f"yt-{vid_id}-{idx}",
