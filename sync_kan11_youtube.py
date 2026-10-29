@@ -67,7 +67,13 @@ KNOWN_SERIES = [
     "שטוקהולם",
     "אבירם כץ",
     "הדיקטטורים",
-    "דוקותיים"
+    "דוקותיים",
+    "אתה חייב לקרוא את זה",
+    "שם טוב האבי",
+    "תמיר בר",
+    "אואזיס במדבר",
+    "הטרמפיסטים",
+    "לוחמים"
 ]
 
 
@@ -157,7 +163,30 @@ def discover_all_channel_videos():
             if vid_id and title and vid_id not in seen_ids:
                 seen_ids.add(vid_id)
                 collected.append((vid_id, title, "כאן 11 Shorts"))
-        print(f"  -> Total unique videos discovered across entire channel: {len(collected)}")
+        print(f"  -> Total unique videos discovered on @KAN11: {len(collected)}")
+
+        print("[4/4] Discovering ALL playlists & videos on @KanDigital (כאן דיגיטל - שם טוב האבי, תמיר בר וכו')...")
+        for pl in scrapetube.get_playlists(channel_url="https://www.youtube.com/@KanDigital", limit=None):
+            pl_id = pl.get("playlistId")
+            pl_title = extract_title(pl)
+            if not pl_id or any(w in pl_title for w in NEWS_FILTER_WORDS):
+                continue
+            try:
+                for pv in scrapetube.get_playlist(playlist_id=pl_id, limit=None):
+                    vid_id = pv.get("videoId")
+                    title = extract_title(pv)
+                    if vid_id and title and vid_id not in seen_ids:
+                        seen_ids.add(vid_id)
+                        collected.append((vid_id, title, pl_title))
+            except Exception:
+                pass
+        for v in scrapetube.get_channel(channel_url="https://www.youtube.com/@KanDigital", limit=None, content_type="videos"):
+            vid_id = v.get("videoId")
+            title = extract_title(v)
+            if vid_id and title and vid_id not in seen_ids:
+                seen_ids.add(vid_id)
+                collected.append((vid_id, title, "כאן דיגיטל"))
+        print(f"  -> Total unique videos discovered across @KAN11 + @KanDigital: {len(collected)}")
 
     except Exception as e:
         print("Discovery warning:", e)
